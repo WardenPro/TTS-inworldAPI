@@ -1,0 +1,70 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+eggs/
+*.egg-info/
+*.egg
+
+# Environnement virtuel
+venv/
+venv312/
+env/
+.venv/
+
+# Variables d'environnement (SECRETS - NE JAMAIS COMMIT)
+.env
+.env.local
+.env.*.local
+
+# IDE / Editeurs
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*.swo
+*~
+
+# Fichiers audio générés
+*.wav
+*.mp3
+*.ogg
+*.flac
+output.wav
+recordings/
+
+# Logs
+*.log
+logs/
+
+# Modèles STT (trop volumineux pour git)
+models/
+*.zip
+
+# Cache Whisper / HuggingFace / Torch
+.cache/
+huggingface/
+
+# Fichiers temporaires
+*.tmp
+*.temp
+tmp/
+
+# Coverage / Tests
+htmlcov/
+.coverage
+.pytest_cache/
+.tox/
+
+# mypy
+.mypy_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Claude Code
+.claude/

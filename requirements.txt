@@ -1,0 +1,9 @@
+pyaudio==0.2.14
+numpy==1.26.4
+webrtcvad==2.0.10
+requests==2.31.0
+python-dotenv==1.0.1
+vosk==0.3.44
+
+# Optional: pour utiliser Whisper au lieu de Vosk (plus précis, GPU recommandé)
+# pip install faster-whisper torch
