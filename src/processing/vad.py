@@ -68,6 +68,18 @@ class UtteranceBuffer:
                 return full_audio
         return None
 
+    def force_finalize(self):
+        """
+        Force le retour immédiat de l'audio accumulé sans attendre le silence.
+        Utilisé par le push-to-talk au relâchement de la touche.
+        """
+        if self.triggered and self.active_frames:
+            print(" [PTT END]")
+            full_audio = b''.join(self.active_frames)
+            self.reset()
+            return full_audio
+        return None
+
     def reset(self):
         self.triggered = False
         self.active_frames = []

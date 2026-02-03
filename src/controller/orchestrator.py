@@ -23,17 +23,20 @@ class PipelineConfig:
     output_device: Optional[int] = None
     voice_id: str = ""
     # STT config
-    stt_engine: str = "vosk"  # "vosk" ou "whisper"
+    stt_engine: str = "vosk"  # "vosk", "whisper" ou "windows"
     vosk_model_path: str = "models/vosk-model-small-fr-0.22"
     whisper_model: str = "base"  # "tiny", "base", "small", "medium"
     language: str = "fr"
     sample_rate: int = 48000
     chunk_ms: int = 20
     # Paramètres VAD
-    vad_aggressiveness: int = 3  # Plus agressif pour filtrer le bruit
+    vad_aggressiveness: int = 0  # Plus agressif pour filtrer le bruit
     min_speech_ms: int = 300     # Minimum 300ms de parole (évite les clics)
     min_silence_ms: int = 600    # 600ms de silence pour détecter fin de phrase
     padding_ms: int = 200
+    # Push-to-Talk
+    push_to_talk: bool = False
+    push_to_talk_key: str = "space"  # space, f1, f2, f3, f4, ctrl_r, caps_lock
 
 
 class VoiceChangerOrchestrator:
@@ -50,6 +53,17 @@ class VoiceChangerOrchestrator:
     - audio_queue: Utterances depuis VAD -> Processing
     - tts_queue: Chunks audio TTS -> Playback
     """
+
+    # Mapping des noms de touches vers les objets pynput
+    PTT_KEY_MAP = {
+        "space": "Key.space",
+        "f1": "Key.f1",
+        "f2": "Key.f2",
+        "f3": "Key.f3",
+        "f4": "Key.f4",
+        "ctrl_r": "Key.ctrl_r",
+        "caps_lock": "Key.caps_lock",
+    }
 
     def __init__(self, config: PipelineConfig, auth):
         self.config = config
@@ -73,6 +87,11 @@ class VoiceChangerOrchestrator:
         self._processing_thread = None
         self._playback_thread = None
         self._stop_event = threading.Event()
+
+        # Push-to-Talk
+        self.ptt_enabled = config.push_to_talk
+        self.ptt_active = False
+        self._ptt_listener = None
 
         # Callbacks optionnels
         self.on_state_change: Optional[Callable[[PipelineState], None]] = None
@@ -151,11 +170,20 @@ class VoiceChangerOrchestrator:
         self._processing_thread.start()
         self._playback_thread.start()
 
+        # Démarrer le Push-to-Talk si activé
+        if self.ptt_enabled:
+            self._start_ptt_listener()
+
         # Démarrer la capture avec callback
         self._set_state(PipelineState.LISTENING)
         self.mic_capture.start(self._audio_callback)
 
-        print("[ORCHESTRATOR] Pipeline démarré. Parlez dans le micro...")
+        if self.ptt_enabled:
+            key_name = self.config.push_to_talk_key
+            print(f"[ORCHESTRATOR] Pipeline démarré. Push-to-Talk activé (touche: {key_name})")
+            print(f"[ORCHESTRATOR] Maintenez '{key_name}' pour parler...")
+        else:
+            print("[ORCHESTRATOR] Pipeline démarré. Parlez dans le micro...")
 
     def _audio_callback(self, frame_bytes: bytes):
         """
@@ -163,6 +191,10 @@ class VoiceChangerOrchestrator:
         Exécuté dans le thread callback de PyAudio - doit être rapide!
         """
         if self._stop_event.is_set():
+            return
+
+        # Push-to-Talk : ignorer les frames si PTT activé mais touche non maintenue
+        if self.ptt_enabled and not self.ptt_active:
             return
 
         # Détection VAD
@@ -184,6 +216,62 @@ class VoiceChangerOrchestrator:
                     self.state = PipelineState.PROCESSING
             except queue.Full:
                 print("[WARN] Queue de processing pleine, utterance ignorée")
+
+    def _resolve_ptt_key(self):
+        """Résout le nom de touche en objet pynput.keyboard.Key."""
+        from pynput.keyboard import Key
+        key_name = self.config.push_to_talk_key.lower()
+        key_mapping = {
+            "space": Key.space,
+            "f1": Key.f1,
+            "f2": Key.f2,
+            "f3": Key.f3,
+            "f4": Key.f4,
+            "ctrl_r": Key.ctrl_r,
+            "caps_lock": Key.caps_lock,
+        }
+        if key_name not in key_mapping:
+            raise ValueError(
+                f"Touche PTT inconnue: '{key_name}'. "
+                f"Touches valides: {', '.join(key_mapping.keys())}"
+            )
+        return key_mapping[key_name]
+
+    def _start_ptt_listener(self):
+        """Démarre le listener clavier pour le push-to-talk."""
+        from pynput import keyboard
+
+        target_key = self._resolve_ptt_key()
+
+        def on_press(key):
+            if key == target_key and not self.ptt_active:
+                self.ptt_active = True
+                sys.stdout.write("[PTT] ")
+                sys.stdout.flush()
+
+        def on_release(key):
+            if key == target_key and self.ptt_active:
+                self.ptt_active = False
+                self._on_ptt_release()
+
+        self._ptt_listener = keyboard.Listener(
+            on_press=on_press,
+            on_release=on_release
+        )
+        self._ptt_listener.daemon = True
+        self._ptt_listener.start()
+
+    def _on_ptt_release(self):
+        """Appelé quand la touche PTT est relâchée. Flush immédiat de l'audio."""
+        if self.utterance_buffer:
+            utterance = self.utterance_buffer.force_finalize()
+            if utterance:
+                try:
+                    self.audio_queue.put_nowait(utterance)
+                    with self._state_lock:
+                        self.state = PipelineState.PROCESSING
+                except queue.Full:
+                    print("[WARN] Queue de processing pleine, utterance ignorée")
 
     def _processing_loop(self):
         """
@@ -284,6 +372,9 @@ class VoiceChangerOrchestrator:
         print("[ORCHESTRATOR] Arrêt en cours...")
         self._set_state(PipelineState.STOPPING)
         self._stop_event.set()
+
+        if self._ptt_listener:
+            self._ptt_listener.stop()
 
         if self.mic_capture:
             self.mic_capture.stop()

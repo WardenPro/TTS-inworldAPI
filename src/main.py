@@ -40,11 +40,13 @@ def main():
     run_parser.add_argument("--input-device", type=int, help="Input device ID (microphone)")
     run_parser.add_argument("--output-device", type=int, help="Output device ID (virtual cable)")
     run_parser.add_argument("--voice", type=str, help="Inworld voice ID (overrides .env)")
-    run_parser.add_argument("--stt", type=str, default="vosk", choices=["vosk", "whisper"], help="STT engine (vosk or whisper)")
+    run_parser.add_argument("--stt", type=str, default="vosk", choices=["vosk", "whisper", "windows"], help="STT engine (vosk, whisper, or windows)")
     run_parser.add_argument("--model", type=str, default="models/vosk-model-small-fr-0.22", help="Path to Vosk model")
     run_parser.add_argument("--whisper-model", type=str, default="base", choices=["tiny", "base", "small", "medium"], help="Whisper model size")
     run_parser.add_argument("--language", type=str, default="fr", help="Language code for STT (fr, en, etc.)")
     run_parser.add_argument("--vad-aggressiveness", type=int, default=3, choices=[0, 1, 2, 3], help="VAD aggressiveness (0=least, 3=most)")
+    run_parser.add_argument("--ptt", action="store_true", help="Enable push-to-talk mode")
+    run_parser.add_argument("--ptt-key", type=str, default=None, help="PTT key (space, f1, f2, f3, f4, ctrl_r, caps_lock)")
 
     args = parser.parse_args()
 
@@ -243,6 +245,10 @@ def main():
         if output_dev is None and os.getenv("OUTPUT_DEVICE_INDEX"):
             output_dev = int(os.getenv("OUTPUT_DEVICE_INDEX"))
 
+        # Push-to-Talk: CLI > .env > défaut (désactivé)
+        ptt_enabled = args.ptt or os.getenv("PTT_ENABLED", "false").lower() == "true"
+        ptt_key = args.ptt_key or os.getenv("PTT_KEY", "space")
+
         config = PipelineConfig(
             input_device=input_dev,
             output_device=output_dev,
@@ -251,7 +257,9 @@ def main():
             vosk_model_path=args.model,
             whisper_model=args.whisper_model,
             language=args.language,
-            vad_aggressiveness=args.vad_aggressiveness
+            vad_aggressiveness=args.vad_aggressiveness,
+            push_to_talk=ptt_enabled,
+            push_to_talk_key=ptt_key
         )
 
         print("=" * 50)
@@ -260,9 +268,19 @@ def main():
         print(f"Input device:  {input_dev or 'default'}")
         print(f"Output device: {output_dev or 'default'}")
         print(f"Voice ID:      {voice_id}")
-        print(f"STT Engine:    {args.stt}" + (f" ({args.whisper_model})" if args.stt == "whisper" else f" ({args.model})"))
+        if args.stt == "whisper":
+            stt_detail = f" ({args.whisper_model})"
+        elif args.stt == "vosk":
+            stt_detail = f" ({args.model})"
+        else:
+            stt_detail = " (Windows SAPI)"
+        print(f"STT Engine:    {args.stt}{stt_detail}")
         print(f"Language:      {args.language}")
         print(f"VAD level:     {args.vad_aggressiveness}")
+        if ptt_enabled:
+            print(f"Push-to-Talk:  ON (touche: {ptt_key})")
+        else:
+            print(f"Push-to-Talk:  OFF (VAD continu)")
         print("=" * 50)
         print("Press Ctrl+C to stop.")
         print()

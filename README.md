@@ -9,7 +9,7 @@ Transformez votre voix en temps réel avec l'IA d'Inworld. Idéal pour Discord, 
 ```
 
 1. **VAD** - Détecte quand vous parlez
-2. **STT** - Transcrit votre voix en texte (Vosk ou Whisper)
+2. **STT** - Transcrit votre voix en texte (Vosk, Whisper ou Windows SAPI)
 3. **TTS** - Inworld génère une nouvelle voix avec votre texte
 4. **Sortie** - L'audio va vers un câble virtuel utilisable dans Discord
 
@@ -55,7 +55,16 @@ pip install setuptools
 
 :: (Optionnel) Pour utiliser Whisper au lieu de Vosk
 pip install faster-whisper torch
+
+:: (Optionnel) Pour utiliser la reconnaissance vocale Windows (SAPI)
+pip install SpeechRecognition
+
+:: (Optionnel) Pour le mode push-to-talk
+pip install pynput
 ```
+
+> **Windows SAPI** : Si vous utilisez le moteur `windows`, assurez-vous que le language pack français est installé :
+> Paramètres > Heure et langue > Langue > Ajouter une langue > Français > cocher "Reconnaissance vocale"
 
 ### 4. Télécharger le modèle Vosk
 
@@ -94,6 +103,9 @@ python src/main.py run --output-device X
 
 :: Avec Whisper (plus précis)
 python src/main.py run --stt whisper --output-device X
+
+:: Avec Windows SAPI (rapide, pas de modèle à télécharger)
+python src/main.py run --stt windows --output-device X
 ```
 
 ### 7. Configurer Discord
@@ -142,6 +154,9 @@ pip install setuptools
 
 # (Optionnel) Pour utiliser Whisper au lieu de Vosk
 pip install faster-whisper torch
+
+# (Optionnel) Pour le mode push-to-talk
+pip install pynput
 ```
 
 ### 5. Télécharger le modèle Vosk
@@ -191,6 +206,8 @@ python src/main.py run --output-device X
 python src/main.py run --stt whisper --whisper-model small --output-device X
 ```
 
+> **Note** : Le moteur Windows SAPI (`--stt windows`) n'est pas disponible sur macOS.
+
 ### 8. Configurer Discord
 
 1. Ouvrez Discord → Paramètres → Voix & Vidéo
@@ -201,45 +218,93 @@ python src/main.py run --stt whisper --whisper-model small --output-device X
 
 ## Commandes
 
+> Pensez toujours à activer le venv avant de lancer une commande :
+> - **Windows** : `venv\Scripts\activate`
+> - **macOS/Linux** : `source venv/bin/activate`
+
+### `list-devices` - Lister les périphériques audio
+
+Affiche tous les périphériques audio (entrées et sorties) avec leur ID, nom et sample rate. Utile pour trouver l'ID de votre micro et de votre câble virtuel.
+
 ```bash
-# Toujours activer le venv d'abord!
-# Windows: venv\Scripts\activate
-# macOS:   source venv/bin/activate
-
-# Lister les périphériques audio
 python src/main.py list-devices
-
-# Lister les voix Inworld disponibles
-python src/main.py list-voices
-
-# Tester le TTS
-python src/main.py test-tts --text "Bonjour" --play
-
-# Tester le micro + VAD
-python src/main.py test-vad
-
-# Tester le STT sur un fichier
-python src/main.py test-stt --file audio.wav
-
-# Lancer le voice changer
-python src/main.py run [options]
 ```
 
-### Options de `run`
+### `list-voices` - Lister les voix Inworld
+
+Interroge l'API Inworld et affiche toutes les voix disponibles avec leur Voice ID. Nécessite les clés API dans `.env`.
+
+```bash
+python src/main.py list-voices
+```
+
+### `test-tts` - Tester la synthèse vocale
+
+Envoie un texte à l'API Inworld et sauvegarde l'audio généré. Permet de vérifier que la connexion API fonctionne.
+
+```bash
+# Sauvegarder dans un fichier
+python src/main.py test-tts --text "Bonjour le monde"
+
+# Sauvegarder et jouer directement
+python src/main.py test-tts --text "Bonjour" --play
+
+# Avec une voix spécifique (sinon utilise .env)
+python src/main.py test-tts --text "Hello" --voice mon_voice_id --play
+
+# Changer le fichier de sortie
+python src/main.py test-tts --text "Test" --output mon_fichier.wav
+```
 
 | Option | Description | Défaut |
 |--------|-------------|--------|
-| `--input-device ID` | ID du microphone | défaut système |
-| `--output-device ID` | ID de la sortie (câble virtuel) | défaut système |
-| `--stt ENGINE` | Moteur STT: `vosk` ou `whisper` | `vosk` |
-| `--whisper-model SIZE` | Modèle Whisper: `tiny`, `base`, `small`, `medium` | `base` |
-| `--language CODE` | Langue: `fr`, `en`, etc. | `fr` |
-| `--vad-aggressiveness N` | Filtrage bruit 0-3 (3=max) | `3` |
+| `--text TEXT` | Texte à synthétiser | `"Hello from Inworld voice changer"` |
+| `--voice ID` | Voice ID Inworld | valeur de `.env` |
+| `--output FILE` | Fichier de sortie | `output.wav` |
+| `--play` | Jouer l'audio après génération | non |
 
-### Exemples
+### `test-vad` - Tester la détection de voix
+
+Capture le micro et sauvegarde chaque segment de parole détecté dans un fichier WAV. Utile pour vérifier que le VAD détecte bien votre voix.
 
 ```bash
-# Basique avec Vosk
+# Avec le micro par défaut
+python src/main.py test-vad
+
+# Avec un micro spécifique
+python src/main.py test-vad --input-device 2
+
+# Sauvegarder dans un dossier spécifique
+python src/main.py test-vad --output-dir mes_enregistrements
+```
+
+| Option | Description | Défaut |
+|--------|-------------|--------|
+| `--input-device ID` | ID du micro | défaut système |
+| `--output-dir DIR` | Dossier de sauvegarde | `recordings/` |
+
+### `test-stt` - Tester la transcription sur un fichier
+
+Transcrit un fichier WAV avec Vosk. Utile pour tester la qualité de transcription sans micro.
+
+```bash
+python src/main.py test-stt --file recordings/utterance_0.wav
+
+# Avec un modèle Vosk spécifique
+python src/main.py test-stt --file audio.wav --model models/vosk-model-fr-0.22
+```
+
+| Option | Description | Défaut |
+|--------|-------------|--------|
+| `--file FILE` | Fichier WAV à transcrire (obligatoire) | - |
+| `--model PATH` | Chemin vers le modèle Vosk | `models/vosk-model-small-fr-0.22` |
+
+### `run` - Lancer le voice changer
+
+Commande principale. Démarre le pipeline complet : capture micro -> VAD -> STT -> TTS Inworld -> sortie audio.
+
+```bash
+# Basique avec Vosk (défaut)
 python src/main.py run
 
 # Avec périphériques spécifiques
@@ -251,24 +316,53 @@ python src/main.py run --stt whisper
 # Whisper modèle small (meilleure qualité)
 python src/main.py run --stt whisper --whisper-model small
 
+# Avec Windows SAPI (Windows uniquement, rapide, pas de modèle)
+python src/main.py run --stt windows
+
 # En anglais
 python src/main.py run --stt whisper --language en
+
+# VAD moins agressif (capte plus de sons, y compris du bruit)
+python src/main.py run --vad-aggressiveness 1
+
+# Push-to-Talk (maintenir la touche pour parler)
+python src/main.py run --ptt --output-device X
+
+# Push-to-Talk avec touche F1
+python src/main.py run --ptt --ptt-key f1 --output-device X
 ```
+
+| Option | Description | Défaut |
+|--------|-------------|--------|
+| `--input-device ID` | ID du microphone | défaut système |
+| `--output-device ID` | ID de la sortie (câble virtuel) | défaut système |
+| `--voice ID` | Voice ID Inworld | valeur de `.env` |
+| `--stt ENGINE` | Moteur STT : `vosk`, `whisper` ou `windows` | `vosk` |
+| `--model PATH` | Chemin vers le modèle Vosk | `models/vosk-model-small-fr-0.22` |
+| `--whisper-model SIZE` | Modèle Whisper : `tiny`, `base`, `small`, `medium` | `base` |
+| `--language CODE` | Langue : `fr`, `en`, `es`, `de`, etc. | `fr` |
+| `--vad-aggressiveness N` | Filtrage bruit 0-3 (0=laisse passer, 3=strict) | `3` |
+| `--ptt` | Active le mode push-to-talk | désactivé |
+| `--ptt-key KEY` | Touche PTT : `space`, `f1`-`f4`, `ctrl_r`, `caps_lock` | `space` |
+
+> **Push-to-Talk** : La touche et l'activation peuvent aussi se configurer dans `.env` avec `PTT_ENABLED=true` et `PTT_KEY=space`. Le flag `--ptt` en CLI prend la priorité sur `.env`.
 
 ---
 
 ## Choix du moteur STT
 
-| Moteur | Précision | Vitesse | GPU | Taille |
-|--------|-----------|---------|-----|--------|
-| **Vosk** | ~85-90% | Très rapide | Non | 41 MB |
-| **Whisper tiny** | ~90% | Rapide | Recommandé | 75 MB |
-| **Whisper base** | ~93% | Moyen | Recommandé | 150 MB |
-| **Whisper small** | ~96% | Lent sur CPU | Oui | 500 MB |
+| Moteur | Précision | Vitesse | GPU | Taille | Plateforme |
+|--------|-----------|---------|-----|--------|------------|
+| **Vosk** | ~85-90% | Très rapide | Non | 41 MB | Toutes |
+| **Whisper tiny** | ~90% | Rapide | Recommandé | 75 MB | Toutes |
+| **Whisper base** | ~93% | Moyen | Recommandé | 150 MB | Toutes |
+| **Whisper small** | ~96% | Lent sur CPU | Oui | 500 MB | Toutes |
+| **Windows SAPI** | ~90-95% | Rapide | Non | 0 MB (intégré) | Windows |
 
-**Recommandation:**
-- Sans GPU: utilisez **Vosk**
-- Avec GPU NVIDIA: utilisez **Whisper small**
+**Recommandation :**
+- **Windows sans GPU** : utilisez **Windows SAPI** (`--stt windows`) - rien à télécharger, bonne qualité
+- **Sans GPU (multi-plateforme)** : utilisez **Vosk**
+- **Avec GPU NVIDIA** : utilisez **Whisper small**
 
 ---
 
@@ -325,7 +419,7 @@ src/
 │   └── audio.py            # Capture micro, sortie audio
 ├── processing/
 │   ├── vad.py              # Détection d'activité vocale
-│   └── stt.py              # Transcription (Vosk/Whisper)
+│   └── stt.py              # Transcription (Vosk/Whisper/Windows SAPI)
 ├── client/
 │   └── inworld.py          # API Inworld TTS
 └── controller/
@@ -345,3 +439,5 @@ MIT
 - [Inworld AI](https://inworld.ai/) - Synthèse vocale
 - [Vosk](https://alphacephei.com/vosk/) - STT léger
 - [Faster-Whisper](https://github.com/guillaumekln/faster-whisper) - STT précis
+- [SpeechRecognition](https://github.com/Uberi/speech_recognition) - Wrapper Python pour Windows SAPI
+- [pynput](https://github.com/moses-palmer/pynput) - Listener clavier pour le push-to-talk

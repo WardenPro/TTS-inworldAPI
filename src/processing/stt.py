@@ -139,12 +139,97 @@ class WhisperSTTEngine(STTEngine):
         return text.strip()
 
 
+class WindowsSpeechEngine(STTEngine):
+    """
+    Moteur STT utilisant la reconnaissance vocale intégrée de Windows (SAPI).
+    Rapide, offline, pas de modèle à télécharger.
+    Nécessite Windows avec le language pack correspondant installé.
+    """
+
+    def __init__(self, language: str = "fr", input_sample_rate: int = 48000):
+        """
+        Args:
+            language: Code langue ("fr", "en", etc.)
+            input_sample_rate: Sample rate de l'audio entrant
+        """
+        import platform
+        if platform.system() != "Windows":
+            raise RuntimeError(
+                "Le moteur 'windows' utilise la reconnaissance vocale Windows (SAPI) "
+                "et n'est disponible que sur Windows."
+            )
+
+        try:
+            import speech_recognition as sr
+        except ImportError:
+            raise ImportError(
+                "speech_recognition n'est pas installé. "
+                "Installez-le avec: pip install SpeechRecognition"
+            )
+
+        self.sr = sr
+        self.recognizer = sr.Recognizer()
+        self.language = language
+        self.input_sample_rate = input_sample_rate
+        self.target_sample_rate = 16000  # SAPI préfère 16kHz
+
+        # Mapping code langue vers locale Windows
+        self._locale_map = {
+            "fr": "fr-FR",
+            "en": "en-US",
+            "es": "es-ES",
+            "de": "de-DE",
+            "it": "it-IT",
+            "pt": "pt-BR",
+            "ja": "ja-JP",
+            "zh": "zh-CN",
+            "ko": "ko-KR",
+            "ru": "ru-RU",
+        }
+
+        locale = self._locale_map.get(language, f"{language}-{language.upper()}")
+        print(f"[WINDOWS STT] Moteur SAPI initialisé (locale: {locale})")
+        self.locale = locale
+
+    def _resample(self, audio_bytes: bytes) -> bytes:
+        """Resample de input_sample_rate vers 16kHz."""
+        audio_np = np.frombuffer(audio_bytes, dtype=np.int16)
+        ratio = self.input_sample_rate // self.target_sample_rate
+        resampled = audio_np[::ratio]
+        return resampled.tobytes()
+
+    def transcribe(self, audio_bytes: bytes) -> str:
+        """
+        Transcrit un segment audio via Windows SAPI.
+
+        Args:
+            audio_bytes: Audio PCM 16-bit mono à input_sample_rate
+
+        Returns:
+            Texte transcrit
+        """
+        # Resample vers 16kHz
+        audio_16k = self._resample(audio_bytes)
+
+        # Créer un objet AudioData pour speech_recognition
+        audio_data = self.sr.AudioData(audio_16k, self.target_sample_rate, 2)  # 2 = sample_width 16-bit
+
+        try:
+            text = self.recognizer.recognize_windows(audio_data, language=self.locale)
+            return text.strip()
+        except self.sr.UnknownValueError:
+            return ""
+        except self.sr.RequestError as e:
+            print(f"[WINDOWS STT] Erreur SAPI: {e}")
+            return ""
+
+
 def create_stt_engine(engine_type: str = "vosk", **kwargs) -> STTEngine:
     """
     Factory pour créer le bon moteur STT.
 
     Args:
-        engine_type: "vosk" ou "whisper"
+        engine_type: "vosk", "whisper" ou "windows"
         **kwargs: Arguments spécifiques au moteur
 
     Returns:
@@ -165,5 +250,13 @@ def create_stt_engine(engine_type: str = "vosk", **kwargs) -> STTEngine:
             input_sample_rate=input_sample_rate
         )
 
+    elif engine_type == "windows":
+        language = kwargs.get("language", "fr")
+        input_sample_rate = kwargs.get("input_sample_rate", 48000)
+        return WindowsSpeechEngine(
+            language=language,
+            input_sample_rate=input_sample_rate
+        )
+
     else:
-        raise ValueError(f"Moteur STT inconnu: {engine_type}. Utilisez 'vosk' ou 'whisper'.")
+        raise ValueError(f"Moteur STT inconnu: {engine_type}. Utilisez 'vosk', 'whisper' ou 'windows'.")
